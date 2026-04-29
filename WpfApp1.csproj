@@ -197,6 +197,10 @@
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
     </Page>
+    <Page Include="Pages\SuperAdminDashboard.xaml">
+      <SubType>Designer</SubType>
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
     <Page Include="Pages\UserDashboard.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>
@@ -222,6 +226,9 @@
     <Compile Include="Model\Order.cs" />
     <Compile Include="Model\Products.cs" />
     <Compile Include="Model\Users.cs" />
+    <Compile Include="Pages\SuperAdminDashboard.xaml.cs">
+      <DependentUpon>SuperAdminDashboard.xaml</DependentUpon>
+    </Compile>
     <Compile Include="Pages\UserDashboard.xaml.cs">
       <DependentUpon>UserDashboard.xaml</DependentUpon>
     </Compile>

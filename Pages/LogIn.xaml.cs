@@ -51,7 +51,7 @@ namespace WpfApp1.Pages
                 if (user.Role == UserRole.SuperAdmin)
                 {
                     MessageBox.Show($"Welcome Super Admin: {user.Name}", "Login Success", MessageBoxButton.OK, MessageBoxImage.Information);
-                    //NavigationService?.Navigate(new SuperAdminDashboard());
+                    NavigationService?.Navigate(new SuperAdminDashboard());
                 }
                 else if (user.Role == UserRole.Admin)
                 {
