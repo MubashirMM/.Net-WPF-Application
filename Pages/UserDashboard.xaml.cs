@@ -8,8 +8,11 @@ using System.IO;
 using System.Diagnostics;
 using Project.Model;
 using WpfApp1.Model;
-
-namespace WpfApp1.Pages
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
+  
+namespace WpfApp1.Pages 
 {
     public partial class UserDashboard : Page
     {
@@ -21,6 +24,9 @@ namespace WpfApp1.Pages
         public UserDashboard()
         {
             InitializeComponent();
+
+            // Initialize QuestPDF
+            QuestPDF.Settings.License = LicenseType.Community;
 
             _db = new AppDbContext();
             _cart = new List<CartItem>();
@@ -268,8 +274,8 @@ namespace WpfApp1.Pages
 
                     await _db.SaveChangesAsync();
 
-                    // Generate Bill (using text file to avoid PDF issues)
-                    GenerateBillFile(order);
+                    // Generate PDF Bill using QuestPDF
+                    GeneratePDFBill(order);
 
                     // Clear cart and refresh
                     _cart.Clear();
@@ -285,11 +291,99 @@ namespace WpfApp1.Pages
             }
         }
 
-        private void GenerateBillFile(Order order)
+        private void GeneratePDFBill(Order order)
         {
             try
             {
                 var orderItems = _db.OrderItems.Where(oi => oi.OrderId == order.Id).ToList();
+                decimal subtotal = orderItems.Sum(i => i.Subtotal);
+                decimal tax = subtotal * 0.12m;
+
+                // Create PDF document
+                var document = Document.Create(container =>
+                {
+                    container.Page(page =>
+                    {
+                        page.Size(PageSizes.A4);
+                        page.Margin(40);
+                        page.DefaultTextStyle(x => x.FontSize(10));
+
+                        // Header
+                        page.Header()
+                            .AlignCenter()
+                            .Column(col =>
+                            {
+                                col.Item().Text("SHOPPING CENTER").FontSize(18).Bold();
+                                col.Item().Text("OFFICIAL RECEIPT").FontSize(12).Bold();
+                                col.Item().PaddingTop(10).LineHorizontal(1);
+                            });
+
+                        // Content
+                        page.Content()
+                            .Column(col =>
+                            {
+                                // Bill Details
+                                col.Item().PaddingTop(10).Column(details =>
+                                {
+                                    details.Item().Text($"Bill Number: {order.BillNumber}");
+                                    details.Item().Text($"Date: {order.OrderDate:dddd, MMMM dd, yyyy hh:mm tt}");
+                                    details.Item().Text($"Cashier: {UserSession.LoggedInUserName}");
+                                });
+
+                                col.Item().PaddingTop(10).LineHorizontal(1);
+
+                                // Items Table
+                                col.Item().Table(table =>
+                                {
+                                    table.ColumnsDefinition(columns =>
+                                    {
+                                        columns.RelativeColumn(3);
+                                        columns.RelativeColumn(1);
+                                        columns.RelativeColumn(1);
+                                        columns.RelativeColumn(1);
+                                    });
+
+                                    // Header
+                                    table.Header(header =>
+                                    {
+                                        header.Cell().Text("Item").Bold();
+                                        header.Cell().Text("Qty").Bold().AlignCenter();
+                                        header.Cell().Text("Price").Bold().AlignRight();
+                                        header.Cell().Text("Total").Bold().AlignRight();
+                                    });
+
+                                    // Items
+                                    foreach (var item in orderItems)
+                                    {
+                                        table.Cell().Text(item.ProductName);
+                                        table.Cell().Text(item.Quantity.ToString()).AlignCenter();
+                                        table.Cell().Text($"${item.UnitPrice:N2}").AlignRight();
+                                        table.Cell().Text($"${item.Subtotal:N2}").AlignRight();
+                                    }
+                                });
+
+                                col.Item().PaddingTop(10).LineHorizontal(1);
+
+                                // Totals 
+                                col.Item().AlignRight().Column(totals => 
+                                {
+                                    totals.Item().Text($"Subtotal: ${subtotal:N2}");
+                                    totals.Item().Text($"Tax (12%): ${tax:N2}").FontColor(Colors.Orange.Darken1);
+                                    totals.Item().Text($"TOTAL: ${order.TotalAmount:N2}").Bold().FontColor(Colors.Red.Darken2);
+                                });
+                            });
+
+                        // Footer
+                        page.Footer()
+                            .AlignCenter()
+                            .Column(col => 
+                            {
+                                col.Item().PaddingTop(20).LineHorizontal(1);
+                                col.Item().Text("Thank you for shopping with us!").FontSize(8).FontColor(Colors.Grey.Darken1);
+                                col.Item().Text("This is a computer generated receipt.").FontSize(8).FontColor(Colors.Grey.Darken1);
+                            });
+                    });
+                });
 
                 // Save to Desktop
                 string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
@@ -299,41 +393,9 @@ namespace WpfApp1.Pages
                     Directory.CreateDirectory(billsFolder);
 
                 string safeFileName = order.BillNumber.Replace(":", "_").Replace("/", "_").Replace("\\", "_");
-                string fullPath = Path.Combine(billsFolder, $"{safeFileName}.txt");
+                string fullPath = Path.Combine(billsFolder, $"{safeFileName}.pdf");
 
-                // Create text receipt
-                using (StreamWriter writer = new StreamWriter(fullPath))
-                {
-                    writer.WriteLine("=".PadRight(60, '='));
-                    writer.WriteLine("                    SHOPPING CENTER");
-                    writer.WriteLine("                   OFFICIAL RECEIPT");
-                    writer.WriteLine("=".PadRight(60, '='));
-                    writer.WriteLine();
-                    writer.WriteLine($"Bill Number: {order.BillNumber}");
-                    writer.WriteLine($"Date: {order.OrderDate:yyyy-MM-dd HH:mm:ss}");
-                    writer.WriteLine($"Cashier: {UserSession.LoggedInUserName}");
-                    writer.WriteLine();
-                    writer.WriteLine("-".PadRight(60, '-'));
-                    writer.WriteLine($"{"Item",-30} {"Qty",5} {"Price",10} {"Total",12}");
-                    writer.WriteLine("-".PadRight(60, '-'));
-
-                    foreach (var item in orderItems)
-                    {
-                        string name = item.ProductName.Length > 28 ? item.ProductName.Substring(0, 25) + "..." : item.ProductName;
-                        writer.WriteLine($"{name,-30} {item.Quantity,5} ${item.UnitPrice,9:N2} ${item.Subtotal,10:N2}");
-                    }
-
-                    writer.WriteLine("-".PadRight(60, '-'));
-                    decimal subtotal = orderItems.Sum(i => i.Subtotal);
-                    decimal tax = subtotal * 0.12m;
-                    writer.WriteLine($"{"Subtotal:",-48} ${subtotal,10:N2}");
-                    writer.WriteLine($"{"Tax (12%):",-48} ${tax,10:N2}");
-                    writer.WriteLine($"{"TOTAL:",-48} ${order.TotalAmount,10:N2}");
-                    writer.WriteLine("=".PadRight(60, '='));
-                    writer.WriteLine();
-                    writer.WriteLine("              Thank you for shopping with us!");
-                    writer.WriteLine("              This is a computer generated receipt.");
-                }
+                document.GeneratePdf(fullPath);
 
                 // Verify and open
                 if (File.Exists(fullPath))
@@ -343,14 +405,10 @@ namespace WpfApp1.Pages
 
                     Process.Start(new ProcessStartInfo(fullPath) { UseShellExecute = true });
                 }
-                else
-                {
-                    MessageBox.Show($"Bill file was not created at: {fullPath}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error generating bill: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"PDF Generation Error: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
@@ -360,13 +418,13 @@ namespace WpfApp1.Pages
             {
                 string billNumber = button.Tag.ToString();
                 string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                string filePath = Path.Combine(desktopPath, "ShoppingBills", $"{billNumber}.txt");
+                string pdfPath = Path.Combine(desktopPath, "ShoppingBills", $"{billNumber}.pdf");
 
-                if (File.Exists(filePath))
+                if (File.Exists(pdfPath))
                 {
                     try
                     {
-                        Process.Start(new ProcessStartInfo(filePath) { UseShellExecute = true });
+                        Process.Start(new ProcessStartInfo(pdfPath) { UseShellExecute = true });
                     }
                     catch (Exception ex)
                     {
@@ -375,7 +433,7 @@ namespace WpfApp1.Pages
                 }
                 else
                 {
-                    MessageBox.Show($"File not found at:\n{filePath}\n\nPlease check if the bill was generated.",
+                    MessageBox.Show($"File not found at:\n{pdfPath}\n\nPlease check if the bill was generated.",
                                   "Missing File", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
